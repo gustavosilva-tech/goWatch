@@ -24,9 +24,30 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error writing health response: %v", err)
 	}
 }
+func checksHandler(client *http.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		targets := []string{
+			"http://127.0.0.1:8080/health",
+			"http://127.0.0.1:8080/not-found",
+		}
+
+		results := checkURLs(client, targets, 2)
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if err := json.NewEncoder(w).Encode(results); err != nil {
+			log.Printf("Error writing checks response: %v", err)
+		}
+	}
+}
 
 func main() {
-
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
@@ -34,6 +55,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/check", checkHandler(client))
+	mux.HandleFunc("/checks", checksHandler(client))
 
 	server := &http.Server{
 		Addr:              "127.0.0.1:8080",
