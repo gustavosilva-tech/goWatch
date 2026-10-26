@@ -16,9 +16,15 @@ func runScheduler(
 	store *Store,
 ) {
 	runOnce := func() {
-		results := checkURLs(client, targets, workers)
+		results := checkURLs(ctx, client, targets, workers)
+		if ctx.Err() != nil {
+			return
+		}
+
 		store.Set(results)
-		log.Printf("Completed %d checks", len(results))
+		summary := summarize(results)
+		log.Printf("Completed %d checks: %d online, %d offline",
+			summary.Total, summary.Online, summary.Offline)
 	}
 
 	runOnce()

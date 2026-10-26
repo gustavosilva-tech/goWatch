@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,7 +44,7 @@ func TestCheckURLStatus(t *testing.T) {
 				Timeout: 2 * time.Second,
 			}
 
-			result := checkURL(client, server.URL)
+			result := checkURL(context.Background(), client, server.URL)
 
 			if result.Online != tt.wantOnline {
 				t.Errorf(
@@ -93,7 +94,7 @@ func TestCheckURLTimeout(t *testing.T) {
 		Timeout: 50 * time.Millisecond,
 	}
 
-	result := checkURL(client, server.URL)
+	result := checkURL(context.Background(), client, server.URL)
 
 	if result.Online {
 		t.Error("expected Online to be false after timeout")
@@ -105,5 +106,23 @@ func TestCheckURLTimeout(t *testing.T) {
 
 	if result.StatusCode != 0 {
 		t.Errorf("StatusCode = %d; want 0", result.StatusCode)
+	}
+}
+
+func TestCheckURLCanceledContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := checkURL(ctx, server.Client(), server.URL)
+
+	if result.Online || result.Error == "" {
+		t.Errorf("expected a canceled check to fail: %+v", result)
 	}
 }

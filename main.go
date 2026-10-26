@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"log"
 	"net"
 	"net/http"
@@ -22,58 +23,36 @@ func writeJSON(w http.ResponseWriter, value any) {
 	}
 }
 
-func allowGet(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return false
-	}
-
-	return true
-}
-
 func healthHandler(w http.ResponseWriter, r *http.Request) {
-	if !allowGet(w, r) {
-		return
-	}
-
 	writeJSON(w, map[string]string{
 		"status":  "ok",
 		"service": "gowatch",
 	})
 }
 
-func checkHandler(client *http.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !allowGet(w, r) {
-			return
-		}
-
-		writeJSON(w, checkURL(client, "http://127.0.0.1:8080/health"))
-	}
-}
-
-func checksHandler(client *http.Client, targets []string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !allowGet(w, r) {
-			return
-		}
-
-		writeJSON(w, checkURLs(client, targets, 2))
-	}
-}
-
 func statusHandler(store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !allowGet(w, r) {
-			return
-		}
-
-		writeJSON(w, store.Latest())
+		writeJSON(w, store.Snapshot())
 	}
+}
+
+func newMux(store *Store) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("GET /status", statusHandler(store))
+
+	return mux
 }
 
 func main() {
+	cfg, err := loadConfig(os.Args[1:], os.Getenv)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
+	if err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -82,29 +61,17 @@ func main() {
 	defer stop()
 
 	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	targets := []string{
-		"http://127.0.0.1:8080/health",
-		"http://127.0.0.1:8080/not-found",
+		Timeout: cfg.Timeout,
 	}
 
 	store := NewStore()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler)
-	mux.HandleFunc("/check", checkHandler(client))
-	mux.HandleFunc("/checks", checksHandler(client, targets))
-	mux.HandleFunc("/status", statusHandler(store))
-
 	server := &http.Server{
-		Addr:              "127.0.0.1:8080",
-		Handler:           mux,
+		Addr:              cfg.Addr,
+		Handler:           newMux(store),
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
-
 	}
 
 	listener, err := net.Listen("tcp", server.Addr)
@@ -119,14 +86,15 @@ func main() {
 		}
 	}()
 
-	log.Println("GoWatch running at http://localhost:8080")
+	log.Printf("GoWatch running at http://%s monitoring %d targets every %s",
+		listener.Addr(), len(cfg.Targets), cfg.Interval)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	go func() {
 		defer wg.Done()
-		runScheduler(ctx, client, targets, 2, 10*time.Second, store)
+		runScheduler(ctx, client, cfg.Targets, cfg.Workers, cfg.Interval, store)
 	}()
 
 	<-ctx.Done()
