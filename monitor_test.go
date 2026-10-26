@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,7 +30,7 @@ func TestCheckURLs(t *testing.T) {
 		server.URL + "/missing",
 	}
 
-	results := checkURLs(client, targets, 2)
+	results := checkURLs(context.Background(), client, targets, 2)
 
 	if len(results) != len(targets) {
 		t.Fatalf(

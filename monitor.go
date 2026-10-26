@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"sync"
 )
@@ -16,6 +17,7 @@ type indexedResult struct {
 }
 
 func checkURLs(
+	ctx context.Context,
 	client *http.Client,
 	targets []string,
 	workers int,
@@ -48,7 +50,7 @@ func checkURLs(
 			for job := range jobs {
 				completed <- indexedResult{
 					index:  job.index,
-					result: checkURL(client, job.url),
+					result: checkURL(ctx, client, job.url),
 				}
 			}
 		}()
